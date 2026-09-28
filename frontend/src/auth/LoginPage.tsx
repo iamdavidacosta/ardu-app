@@ -61,7 +61,7 @@ export function LoginPage() {
           {error && <p className="form-error" role="alert">{error}</p>}
           <button className="primary-button" type="submit" disabled={submitting}>
             <LockKeyhole size={18} />
-            {submitting ? 'Entrando…' : 'Entrar'}
+            {submitting ? (registering ? 'Creando…' : 'Entrando…') : (registering ? 'Crear cuenta' : 'Entrar')}
             {!submitting && <ArrowRight size={18} />}
           </button>
         </form>
