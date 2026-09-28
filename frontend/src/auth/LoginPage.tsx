@@ -4,7 +4,8 @@ import { useAuth } from './auth-context'
 import { SquirrelMark } from '../components/SquirrelMark'
 
 export function LoginPage() {
-  const { signIn } = useAuth()
+  const { signIn, signUp } = useAuth()
+  const [registering, setRegistering] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -15,7 +16,8 @@ export function LoginPage() {
     setError('')
     setSubmitting(true)
     try {
-      await signIn(email, password)
+      if (registering) await signUp(email, password)
+      else await signIn(email, password)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'No fue posible iniciar sesión.')
     } finally {
@@ -63,7 +65,9 @@ export function LoginPage() {
             {!submitting && <ArrowRight size={18} />}
           </button>
         </form>
-        <p className="login-note">Acceso privado. Las cuentas se crean desde tu proyecto de Supabase.</p>
+        <button type="button" className="text-link auth-switch" onClick={() => { setRegistering((value) => !value); setError('') }}>
+          {registering ? '¿Ya tienes una cuenta? Entrar' : '¿Aún no tienes cuenta? Crear una'}
+        </button>
       </section>
     </main>
   )

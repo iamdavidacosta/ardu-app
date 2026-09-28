@@ -28,6 +28,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
       const { error } = await getSupabase().auth.signInWithPassword({ email: email.trim(), password })
       if (error) throw new Error('El correo o la contraseña no son correctos.')
     },
+    async signUp(email, password) {
+      const { data, error } = await getSupabase().auth.signUp({ email: email.trim(), password })
+      if (error) throw new Error('No pudimos crear tu cuenta.')
+      if (!data.session) throw new Error('Revisa tu correo para confirmar la cuenta y luego inicia sesión.')
+    },
     async signOut() {
       const { error } = await getSupabase().auth.signOut()
       if (error) throw new Error('No fue posible cerrar la sesión.')
