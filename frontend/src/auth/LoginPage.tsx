@@ -27,8 +27,10 @@ export function LoginPage() {
 
   return (
     <main className="login-page">
-      <div className="ambient-orb ambient-orb--one" />
-      <div className="ambient-orb ambient-orb--two" />
+      <div className="login-ambience" aria-hidden="true">
+        <div className="ambient-orb ambient-orb--one" />
+        <div className="ambient-orb ambient-orb--two" />
+      </div>
       <section className="login-card" aria-labelledby="login-title">
         <div className="brand-mark" aria-hidden="true"><SquirrelMark size={31} /></div>
         <p className="eyebrow">ARDU · memoria de compras</p>
@@ -65,8 +67,9 @@ export function LoginPage() {
             {!submitting && <ArrowRight size={18} />}
           </button>
         </form>
-        <button type="button" className="text-link auth-switch" onClick={() => { setRegistering((value) => !value); setError('') }}>
-          {registering ? '¿Ya tienes una cuenta? Entrar' : '¿Aún no tienes cuenta? Crear una'}
+        <button type="button" className="auth-switch" onClick={() => { setRegistering((value) => !value); setError('') }}>
+          <span>{registering ? '¿Ya tienes una cuenta?' : '¿Aún no tienes cuenta?'}</span>
+          <strong>{registering ? 'Inicia sesión' : 'Regístrate'}</strong>
         </button>
       </section>
     </main>
