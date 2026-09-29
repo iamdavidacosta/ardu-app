@@ -13,6 +13,55 @@ const mapCatalogProduct = (row: CatalogRow): CatalogProduct => ({
 })
 
 export const catalogService = {
+  async getFromOpenFoodFacts(code: string): Promise<CatalogProduct | null> {
+    if (!/^\d{4,32}$/.test(code)) throw new ServiceError('Código de barras inválido.')
+    const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}?fields=code,product_name,quantity`, {
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!response.ok) throw new ServiceError('Open Food Facts no está disponible. Intenta de nuevo o completa el producto manualmente.')
+    const payload: unknown = await response.json()
+    if (!payload || typeof payload !== 'object' || !('status' in payload) || payload.status !== 1 || !('product' in payload)) return null
+    const product = payload.product
+    if (!product || typeof product !== 'object' || !('code' in product) || product.code !== code) return null
+    const found: CatalogProduct = {
+      code,
+      productName: 'product_name' in product && typeof product.product_name === 'string' ? product.product_name : null,
+      quantity: 'quantity' in product && typeof product.quantity === 'string' ? product.quantity : null,
+    }
+    if (!found.productName?.trim()) return null
+    return this.add(code, found.productName.slice(0, 120), found.quantity?.slice(0, 120) ?? null)
+  },
+
+  async add(code: string, productName: string, quantity: string | null): Promise<CatalogProduct> {
+    const name = productName.trim()
+    const presentation = quantity?.trim() || null
+    if (!/^\d{4,32}$/.test(code) || !name || name.length > 120 || (presentation?.length ?? 0) > 120) {
+      throw new ServiceError('Revisa el nombre y la presentación del producto.')
+    }
+    const { data, error } = await getSupabase().from('catalog_products')
+      .insert({ code, product_name: name, quantity: presentation })
+      .select('code, product_name, quantity').single()
+    if (error?.code === '23505') {
+      const existing = await this.getByCode(code)
+      if (existing) return existing
+    }
+    throwIfError(error, 'No fue posible guardar el producto en el catálogo compartido. Aplica la migración de contribuciones en Supabase.')
+    return mapCatalogProduct(data!)
+  },
+
+  async update(code: string, productName: string, quantity: string | null): Promise<CatalogProduct> {
+    const name = productName.trim()
+    const presentation = quantity?.trim() || null
+    if (!/^\d{4,32}$/.test(code) || !name || name.length > 120 || (presentation?.length ?? 0) > 120) {
+      throw new ServiceError('Revisa el nombre y la presentación del producto.')
+    }
+    const { data, error } = await getSupabase().from('catalog_products')
+      .update({ product_name: name, quantity: presentation })
+      .eq('code', code)
+      .select('code, product_name, quantity').single()
+    throwIfError(error, 'No fue posible corregir el catálogo compartido.')
+    return mapCatalogProduct(data!)
+  },
   async getStatus(): Promise<{ ready: boolean; count: number }> {
     const { count, error } = await getSupabase().from('catalog_products').select('code', { count: 'exact', head: true })
     if (isMissingCatalog(error?.code)) return { ready: false, count: 0 }
@@ -26,12 +75,10 @@ export const catalogService = {
     if (normalized.length > 80) throw new ServiceError('La búsqueda debe tener máximo 80 caracteres.')
 
     const escaped = normalized.replace(/[\\%_]/g, '\\$&')
-    const { data, error } = await getSupabase()
-      .from('catalog_products')
-      .select('code, product_name, quantity')
-      .ilike('product_name', `%${escaped}%`)
-      .order('product_name')
-      .limit(20)
+    const request = getSupabase().from('catalog_products').select('code, product_name, quantity')
+    const { data, error } = await (/^\d{4,32}$/.test(normalized)
+      ? request.eq('code', normalized)
+      : request.ilike('product_name', `%${escaped}%`).order('product_name').limit(20))
     if (isMissingCatalog(error?.code)) return []
     throwIfError(error, 'No fue posible buscar en el catálogo de Colombia.')
     return (data ?? []).map(mapCatalogProduct)

@@ -185,7 +185,18 @@ export function ShoppingPage() {
         selectProduct(owned.active ? owned : await productsService.update(owned.id, { ...owned, active: true }))
         return
       }
-      const catalog = await catalogService.getByCode(code)
+      let catalog = await catalogService.getByCode(code)
+      if (!catalog) {
+        try {
+          catalog = await catalogService.getFromOpenFoodFacts(code)
+        } catch (caught) {
+          setError(caught instanceof Error ? caught.message : 'No fue posible consultar Open Food Facts; puedes ingresar el producto manualmente.')
+          setPendingBarcode(code)
+          setPendingCatalog(null)
+          setCreatingProduct(true)
+          return
+        }
+      }
       if (catalog && session) {
         const product = await productsService.ensureFromCatalog(session.user.id, catalog)
         if (product) {
@@ -201,6 +212,21 @@ export function ShoppingPage() {
     } finally {
       setResolvingCatalog(false)
     }
+  }
+
+  function finishManualProduct(product: Product) {
+    const code = pendingBarcode
+    const original = pendingCatalog
+    setCreatingProduct(false)
+    setPendingBarcode(null)
+    setPendingCatalog(null)
+    selectProduct(product)
+    if (!code) return
+    const quantity = formatPresentation(product.presentationQuantity, product.presentationUnit)
+    const saveShared = original
+      ? catalogService.update(code, product.name, quantity)
+      : catalogService.add(code, product.name, quantity)
+    void saveShared.catch((caught) => setError(caught instanceof Error ? caught.message : 'El producto se guardó solo en tu catálogo personal.'))
   }
 
   async function startTrip() {
@@ -401,7 +427,7 @@ export function ShoppingPage() {
       <footer className="checkout-bar"><div><span>Total compra</span><strong>{formatCurrency(trip.total)}</strong></div><button className="primary-button" type="button" disabled={trip.items.length === 0 || loading} onClick={() => void finalizeTrip()}><Check size={19} /> {loading ? 'Finalizando…' : 'Finalizar compra'}</button></footer>
 
       {scannerOpen && <BarcodeScanner onDetected={(code) => void handleBarcode(code)} onClose={closeScanner} />}
-      {creatingProduct && <div className="sheet-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setCreatingProduct(false)}><div className="bottom-sheet" role="dialog" aria-modal="true" aria-label="Crear producto"><ProductForm initialName={pendingCatalog?.productName || (pendingBarcode ? '' : query)} initialBarcode={pendingBarcode ?? undefined} initialQuantity={parsePresentation(pendingCatalog?.quantity ?? null)?.presentationQuantity} initialUnit={parsePresentation(pendingCatalog?.quantity ?? null)?.presentationUnit} onCancel={() => setCreatingProduct(false)} onSaved={(product) => { setCreatingProduct(false); setPendingBarcode(null); setPendingCatalog(null); selectProduct(product) }} /></div></div>}
+      {creatingProduct && <div className="sheet-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setCreatingProduct(false)}><div className="bottom-sheet" role="dialog" aria-modal="true" aria-label="Crear producto"><ProductForm initialName={pendingCatalog?.productName || (pendingBarcode ? '' : query)} initialBarcode={pendingBarcode ?? undefined} initialQuantity={parsePresentation(pendingCatalog?.quantity ?? null)?.presentationQuantity} initialUnit={parsePresentation(pendingCatalog?.quantity ?? null)?.presentationUnit} onCancel={() => setCreatingProduct(false)} onSaved={finishManualProduct} /></div></div>}
     </div>
   )
 }

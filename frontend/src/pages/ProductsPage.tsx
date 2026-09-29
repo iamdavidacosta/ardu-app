@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/auth-context'
 import { ErrorState, PageLoader } from '../components/AsyncState'
 import { ProductForm } from '../components/ProductForm'
+import { CatalogEditor } from '../components/CatalogEditor'
 import { useAsyncValue } from '../hooks/useAsyncValue'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { catalogService } from '../services/catalog.service'
@@ -18,6 +19,7 @@ export function ProductsPage() {
   const [query, setQuery] = useState('')
   const [creating, setCreating] = useState(false)
   const [selectedCatalog, setSelectedCatalog] = useState<CatalogProduct | null>(null)
+  const [editingCatalog, setEditingCatalog] = useState<CatalogProduct | null>(null)
   const [addingCode, setAddingCode] = useState('')
   const [actionError, setActionError] = useState('')
   const debouncedQuery = useDebouncedValue(query)
@@ -28,7 +30,7 @@ export function ProductsPage() {
   if (catalogStatus.value) {
     if (!catalogStatus.value.ready) catalogStatusMessage = 'El catálogo de Colombia aún no está activado en Supabase.'
     else if (catalogStatus.value.count === 0) catalogStatusMessage = 'El catálogo está vacío; falta cargar los productos en Supabase.'
-    else catalogStatusMessage = `${catalogStatus.value.count.toLocaleString('es-CO')} productos de Colombia disponibles en el catálogo.`
+    else catalogStatusMessage = `${catalogStatus.value.count.toLocaleString('es-CO')} productos disponibles en el catálogo compartido.`
   }
 
   async function addCatalogProduct(entry: CatalogProduct) {
@@ -58,7 +60,7 @@ export function ProductsPage() {
       <label className="search-field">
         <Search size={19} />
         <span className="sr-only">Buscar productos</span>
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por nombre…" />
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por nombre o código…" />
       </label>
       {catalogStatus.value && <p className={catalogStatus.value.ready && catalogStatus.value.count > 0 ? 'catalog-status' : 'form-error'} role="status">{catalogStatusMessage}</p>}
       {catalogStatus.error && <p className="form-error" role="alert">{catalogStatus.error}</p>}
@@ -81,7 +83,9 @@ export function ProductsPage() {
         </div>
       )}
 
-      {query.trim().length >= 2 && catalog.value && catalog.value.length > 0 && <section className="section-block"><div className="section-heading"><div><p className="eyebrow">Open Food Facts</p><h2>Catálogo de Colombia</h2></div></div><div className="product-grid">{catalog.value.filter((entry) => !products.value?.some((product) => product.barcode === entry.code)).map((entry) => <button className="product-card catalog-card" type="button" key={entry.code} disabled={addingCode === entry.code} onClick={() => void addCatalogProduct(entry)}><span className="product-monogram">{(entry.productName || 'CO').slice(0, 2).toUpperCase()}</span><span className="catalog-card-copy"><strong>{entry.productName || `Código ${entry.code}`}</strong><small>{entry.quantity || 'Presentación por confirmar'}</small></span><Plus size={18} /></button>)}</div><p className="source-credit">Datos de <a href="https://world.openfoodfacts.org/" target="_blank" rel="noreferrer">Open Food Facts</a> (ODbL).</p></section>}
+      {query.trim().length >= 2 && catalog.value && catalog.value.length > 0 && <section className="section-block"><div className="section-heading"><div><p className="eyebrow">Open Food Facts</p><h2>Catálogo compartido</h2></div></div><div className="product-grid">{catalog.value.map((entry) => <div className="catalog-entry" key={entry.code}><button className="product-card catalog-card" type="button" disabled={addingCode === entry.code || Boolean(products.value?.some((product) => product.barcode === entry.code))} onClick={() => void addCatalogProduct(entry)}><span className="product-monogram">{(entry.productName || 'CO').slice(0, 2).toUpperCase()}</span><span className="catalog-card-copy"><strong>{entry.productName || `Código ${entry.code}`}</strong><small>{entry.quantity || 'Presentación por confirmar'}</small></span><Plus size={18} /></button><button className="text-button catalog-edit-button" type="button" onClick={() => setEditingCatalog(entry)}>Corregir datos</button></div>)}</div><p className="source-credit">Datos de <a href="https://world.openfoodfacts.org/" target="_blank" rel="noreferrer">Open Food Facts</a> (ODbL). Las correcciones son compartidas.</p></section>}
+
+      {editingCatalog && <CatalogEditor product={editingCatalog} onClose={() => setEditingCatalog(null)} onSaved={() => { setEditingCatalog(null); void catalog.reload() }} />}
 
       {creating && (
         <div className="sheet-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setCreating(false); setSelectedCatalog(null) } }}>

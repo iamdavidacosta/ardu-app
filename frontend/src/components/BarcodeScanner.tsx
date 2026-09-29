@@ -5,6 +5,12 @@ import { isBarcode } from '../utils/barcode'
 
 const maxPhotoBytes = 10 * 1024 * 1024
 const acceptedPhotoTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp', 'image/heic', 'image/heif'])
+type ZoomRange = { min: number; max: number; step: number }
+
+function getCameraTrack(video: HTMLVideoElement | null): MediaStreamTrack | undefined {
+  const stream = video?.srcObject
+  return stream && 'getVideoTracks' in stream ? stream.getVideoTracks()[0] : undefined
+}
 
 export function BarcodeScanner({ onDetected, onClose }: {
   onDetected: (code: string) => void
@@ -22,6 +28,8 @@ export function BarcodeScanner({ onDetected, onClose }: {
   const [manualError, setManualError] = useState('')
   const [photoError, setPhotoError] = useState('')
   const [readingPhoto, setReadingPhoto] = useState(false)
+  const [zoomRange, setZoomRange] = useState<ZoomRange | null>(null)
+  const [zoom, setZoom] = useState(1)
   useEffect(() => { onDetectedRef.current = onDetected }, [onDetected])
 
   const finishDetection = useCallback((code: string) => {
@@ -42,13 +50,28 @@ export function BarcodeScanner({ onDetected, onClose }: {
       void import('@zxing/browser').then(async ({ BrowserMultiFormatOneDReader }) => {
         if (!active || !videoRef.current) return
         const reader = new BrowserMultiFormatOneDReader()
-        const scannerControls = await reader.decodeFromVideoDevice(undefined, videoRef.current, (result, _error, callbackControls) => {
+        const onResult = (result: { getText(): string } | undefined, _error: unknown, callbackControls: IScannerControls) => {
           if (!active || !result) return
           const code = result.getText().trim()
           if (finishDetection(code)) callbackControls.stop()
-        })
-        if (active && !handledRef.current) controlsRef.current = scannerControls
-        else scannerControls.stop()
+        }
+        const scannerControls = await reader.decodeFromConstraints({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: false,
+        }, videoRef.current, onResult).catch(() => reader.decodeFromVideoDevice(undefined, videoRef.current!, onResult))
+        if (active && !handledRef.current) {
+          controlsRef.current = scannerControls
+          const track = getCameraTrack(videoRef.current)
+          const capabilities = track?.getCapabilities?.() as (MediaTrackCapabilities & { zoom?: ZoomRange; focusMode?: string[] }) | undefined
+          if (track && capabilities?.focusMode?.includes('continuous')) {
+            void track.applyConstraints({ advanced: [{ focusMode: 'continuous' } as MediaTrackConstraintSet] }).catch(() => {})
+          }
+          if (capabilities?.zoom && capabilities.zoom.max > capabilities.zoom.min) {
+            setZoomRange(capabilities.zoom)
+            const currentZoom = (track?.getSettings() as MediaTrackSettings & { zoom?: number } | undefined)?.zoom
+            setZoom(currentZoom ?? Math.max(1, capabilities.zoom.min))
+          }
+        } else scannerControls.stop()
       }).catch(() => {
         if (active) setCameraError('No pudimos abrir la cámara. Revisa el permiso, usa una foto o escribe el código.')
       })
@@ -101,6 +124,13 @@ export function BarcodeScanner({ onDetected, onClose }: {
     finishDetection(code)
   }
 
+  function changeZoom(value: number) {
+    const track = getCameraTrack(videoRef.current)
+    if (!track) return
+    setZoom(value)
+    void track.applyConstraints({ advanced: [{ zoom: value } as MediaTrackConstraintSet] }).catch(() => setZoomRange(null))
+  }
+
   return (
     <div className="sheet-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="bottom-sheet scanner-sheet" role="dialog" aria-modal="true" aria-labelledby="scanner-title">
@@ -114,7 +144,8 @@ export function BarcodeScanner({ onDetected, onClose }: {
         {readingPhoto && <p className="scanner-help" role="status">Buscando el código en la foto…</p>}
         {photoError && <p className="form-error" role="alert">{photoError}</p>}
         <div className="scanner-preview"><video ref={videoRef} muted playsInline aria-label="Vista de la cámara para leer el código de barras" /><span className="scanner-reticle" aria-hidden="true"><ScanLine size={38} /></span></div>
-        {cameraError ? <p className="form-error" role="status">{cameraError}</p> : <p className="scanner-help"><Camera size={16} /> Centra el código de barras dentro del recuadro.</p>}
+        {zoomRange && <label className="scanner-zoom">Acercar imagen <input aria-label="Acercar imagen" type="range" min={zoomRange.min} max={zoomRange.max} step={zoomRange.step || 0.1} value={zoom} onChange={(event) => changeZoom(Number(event.target.value))} /><span>{zoom.toFixed(1)}×</span></label>}
+        {cameraError ? <p className="form-error" role="status">{cameraError}</p> : <p className="scanner-help"><Camera size={16} /> Mantén el producto a una distancia donde se vea nítido; usa el zoom si está disponible.</p>}
         <form className="scanner-manual" onSubmit={submitCode}>
           <label htmlFor="manual-barcode">O escribe el código</label>
           <div><input id="manual-barcode" type="text" inputMode="numeric" autoComplete="off" value={manualCode} onChange={(event) => setManualCode(event.target.value)} maxLength={32} placeholder="Ej. 7702047038772" /><button className="secondary-button" type="submit">Buscar</button></div>

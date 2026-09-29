@@ -3,15 +3,47 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BarcodeScanner } from './BarcodeScanner'
 
 const decodeFromImageUrl = vi.hoisted(() => vi.fn())
+const decodeFromConstraints = vi.hoisted(() => vi.fn())
 vi.mock('@zxing/browser', () => ({
   BrowserMultiFormatOneDReader: class {
     decodeFromImageUrl = decodeFromImageUrl
+    decodeFromConstraints = decodeFromConstraints
   },
 }))
 
-afterEach(() => { cleanup(); decodeFromImageUrl.mockReset() })
+afterEach(() => { cleanup(); decodeFromImageUrl.mockReset(); decodeFromConstraints.mockReset() })
 
 describe('BarcodeScanner manual fallback', () => {
+  it('requests a high-resolution rear camera and offers hardware zoom when supported', async () => {
+    const originalMediaDevices = Object.getOwnPropertyDescriptor(navigator, 'mediaDevices')
+    const applyConstraints = vi.fn().mockResolvedValue(undefined)
+    const track = {
+      getCapabilities: () => ({ zoom: { min: 1, max: 3, step: 0.5 }, focusMode: ['continuous'] }),
+      getSettings: () => ({ zoom: 1 }),
+      applyConstraints,
+    }
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn() } })
+    decodeFromConstraints.mockImplementation(async (_constraints, video: HTMLVideoElement) => {
+      Object.defineProperty(video, 'srcObject', { configurable: true, value: { getVideoTracks: () => [track] } })
+      return { stop: vi.fn() }
+    })
+
+    try {
+      render(<BarcodeScanner onDetected={vi.fn()} onClose={vi.fn()} />)
+      await waitFor(() => expect(decodeFromConstraints).toHaveBeenCalled())
+      expect(decodeFromConstraints.mock.calls[0][0]).toEqual({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false,
+      })
+      const slider = await screen.findByRole('slider', { name: 'Acercar imagen' })
+      fireEvent.change(slider, { target: { value: '2' } })
+      await waitFor(() => expect(applyConstraints).toHaveBeenCalledWith({ advanced: [{ zoom: 2 }] }))
+    } finally {
+      if (originalMediaDevices) Object.defineProperty(navigator, 'mediaDevices', originalMediaDevices)
+      else Reflect.deleteProperty(navigator, 'mediaDevices')
+    }
+  })
+
   it('accepts a typed barcode when the camera is unavailable', () => {
     const onDetected = vi.fn()
     render(<BarcodeScanner onDetected={onDetected} onClose={vi.fn()} />)

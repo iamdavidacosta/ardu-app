@@ -12,6 +12,7 @@ describe('barcode catalog input', () => {
     expect(parsePresentation('500 mL')).toEqual({ presentationQuantity: 500, presentationUnit: 'ml' })
     expect(parsePresentation('1,5 L')).toEqual({ presentationQuantity: 1.5, presentationUnit: 'L' })
     expect(parsePresentation('6 x 200 ml')).toEqual({ presentationQuantity: 1200, presentationUnit: 'ml' })
+    expect(parsePresentation('35 porciones/chicles 45,5 gramos')).toEqual({ presentationQuantity: 45.5, presentationUnit: 'g' })
   })
 
   it('requires confirmation when quantity is missing or ambiguous', () => {
