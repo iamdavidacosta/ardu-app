@@ -91,6 +91,7 @@ p { color: var(--muted); line-height: 1.55; }
 .catalog-card-copy small { color: var(--muted); }
 .source-credit { margin: 0; font-size: .78rem; }
 .source-credit a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.catalog-status { margin: -16px 0 0; color: var(--muted); font-size: .82rem; }
 .product-monogram { flex: 0 0 auto; width: 50px; height: 50px; border-radius: 19px 19px 19px 7px; display: grid; place-items: center; color: #11180d; background: linear-gradient(145deg, var(--accent), #7be9a7); font-size: .78rem; font-weight: 850; letter-spacing: .03em; }
 .product-monogram.small { width: 44px; height: 44px; border-radius: 15px 15px 15px 6px; }
 .product-monogram.large { width: 88px; height: 88px; border-radius: 31px 31px 31px 10px; font-size: 1.2rem; }
@@ -183,6 +184,8 @@ p { color: var(--muted); line-height: 1.55; }
 .checkout-bar span { color: var(--muted); font-size: .67rem; text-transform: uppercase; letter-spacing: .1em; }
 .checkout-bar > div strong { color: var(--accent); font-size: 1.12rem; }
 .scanner-sheet { display: grid; gap: 16px; }
+.scanner-photo-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.scanner-photo-actions .secondary-button { min-width: 0; padding-inline: 10px; font-size: .86rem; }
 .scanner-preview { width: 100%; aspect-ratio: 4 / 3; min-height: 180px; border: 1px solid var(--border-strong); border-radius: 20px; position: relative; overflow: hidden; display: grid; place-items: center; background: #080d12; }
 .scanner-preview video { width: 100%; height: 100%; position: absolute; inset: 0; object-fit: cover; }
 .scanner-reticle { width: min(75%, 300px); height: 45%; border: 2px solid var(--accent); border-radius: 16px; position: relative; z-index: 1; display: grid; place-items: center; color: var(--accent); box-shadow: 0 0 24px rgba(185, 255, 102, .12); }
@@ -292,4 +295,8 @@ p { color: var(--muted); line-height: 1.55; }
   .scanner-manual > div { grid-template-columns: minmax(0, 1fr); }
   .receipt-row, .price-row { align-items: flex-start; flex-direction: column; }
   .timeline-entry { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 360px) {
+  .scanner-photo-actions { grid-template-columns: minmax(0, 1fr); }
 }

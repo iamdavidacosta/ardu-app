@@ -7,6 +7,7 @@ export type Store = {
 
 export type Product = {
   id: string
+  barcode: string | null
   name: string
   presentationQuantity: number
   presentationUnit: PresentationUnit
@@ -16,7 +17,13 @@ export type Product = {
   updatedAt: string
 }
 
-export type SaveProductInput = Omit<Product, 'id' | 'createdAt' | 'updatedAt'>
+export type SaveProductInput = Omit<Product, 'id' | 'barcode' | 'createdAt' | 'updatedAt'> & { barcode?: string | null }
+
+export type CatalogProduct = {
+  code: string
+  productName: string | null
+  quantity: string | null
+}
 
 export type ShoppingItem = {
   id: string

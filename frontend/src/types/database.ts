@@ -11,6 +11,7 @@ type StoreRow = {
 type ProductRow = {
   id: string
   user_id: string
+  barcode: string | null
   name: string
   presentation_quantity: number
   presentation_unit: string
@@ -18,6 +19,12 @@ type ProductRow = {
   active: boolean
   created_at: string
   updated_at: string
+}
+
+type CatalogProductRow = {
+  code: string
+  product_name: string | null
+  quantity: string | null
 }
 
 type ShoppingTripRow = {
@@ -46,6 +53,12 @@ type ShoppingItemRow = {
 export type Database = {
   public: {
     Tables: {
+      catalog_products: {
+        Row: CatalogProductRow
+        Insert: CatalogProductRow
+        Update: Partial<CatalogProductRow>
+        Relationships: []
+      }
       stores: {
         Row: StoreRow
         Insert: Pick<StoreRow, 'user_id' | 'name'> & Partial<Pick<StoreRow, 'id' | 'created_at' | 'updated_at'>>
@@ -55,8 +68,8 @@ export type Database = {
       products: {
         Row: ProductRow
         Insert: Pick<ProductRow, 'user_id' | 'name' | 'presentation_quantity' | 'presentation_unit'> &
-          Partial<Pick<ProductRow, 'id' | 'category' | 'active' | 'created_at' | 'updated_at'>>
-        Update: Partial<Pick<ProductRow, 'name' | 'presentation_quantity' | 'presentation_unit' | 'category' | 'active'>>
+          Partial<Pick<ProductRow, 'id' | 'barcode' | 'category' | 'active' | 'created_at' | 'updated_at'>>
+        Update: Partial<Pick<ProductRow, 'name' | 'barcode' | 'presentation_quantity' | 'presentation_unit' | 'category' | 'active'>>
         Relationships: []
       }
       shopping_trips: {

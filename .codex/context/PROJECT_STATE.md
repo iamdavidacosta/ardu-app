@@ -12,7 +12,7 @@ ARDU es una aplicación personal, mobile-first, para registrar compras de superm
 - Backend propio: ninguno.
 - BaaS: Supabase.
 - Persistencia: PostgreSQL administrado por Supabase.
-- Authentication: Supabase Auth con email y contraseña; no hay registro público en la interfaz.
+- Authentication: Supabase Auth con email y contraseña; la interfaz permite iniciar sesión y crear cuenta si el proyecto Supabase habilita el registro.
 - Authorization: PostgreSQL Row Level Security (RLS) basada en `auth.uid()`.
 - Pruebas frontend: Vitest, Testing Library y jsdom.
 
@@ -30,7 +30,7 @@ Los componentes no hacen consultas Supabase directamente. Las páginas consumen 
 
 ## Data model and ownership
 
-Las tablas principales son `stores`, `products`, `shopping_trips` y `shopping_items`. Todas contienen `user_id uuid` vinculado a `auth.users(id)`. Las claves foráneas compuestas incluyen `user_id` para impedir relaciones entre datos de propietarios diferentes incluso si un cliente manipula identificadores.
+Las tablas principales son `stores`, `products`, `shopping_trips` y `shopping_items`. Todas contienen `user_id uuid` vinculado a `auth.users(id)`. Las claves foráneas compuestas incluyen `user_id` para impedir relaciones entre datos de propietarios diferentes incluso si un cliente manipula identificadores. `catalog_products` es un catálogo global de Open Food Facts con `code`, `product_name` y `quantity`; los clientes autenticados solo pueden leerlo. `products.barcode` permite relacionar un producto privado con un código de barras sin exponer su historial.
 
 `products` separa `presentation_quantity` y `presentation_unit`; las unidades iniciales son `g`, `kg`, `ml`, `L` y `unidades`. `shopping_items` separa `unit_price` de `quantity_purchased`. El precio usa `numeric(14,2)` y nunca floating point. Cada línea guarda un snapshot mínimo de nombre y presentación, rellenado por un trigger a partir de un producto activo del mismo usuario, para que editar el catálogo no reescriba una compra histórica.
 
@@ -40,7 +40,7 @@ No se almacenan subtotal ni total. `shopping_trip_summaries` los deriva de `unit
 
 Sin sesión no se montan las rutas de la aplicación. Supabase persiste y renueva la sesión del navegador. La anon key es configuración pública permitida; nunca se utiliza `SUPABASE_SERVICE_ROLE_KEY` en el frontend.
 
-RLS está habilitado en las cuatro tablas. Existen políticas explícitas SELECT, INSERT, UPDATE y DELETE para el propietario autenticado. Las líneas solo pueden insertarse, cambiarse o eliminarse mientras su compra esté en estado `draft`; una compra `completed` es inmutable. Los privilegios de columna impiden cambiar `user_id`, snapshots o `status` directamente desde el cliente.
+RLS está habilitado en las tablas privadas y en `catalog_products`. Las tablas privadas tienen políticas de propietario autenticado; el catálogo global solo permite SELECT a usuarios autenticados. Las líneas solo pueden insertarse, cambiarse o eliminarse mientras su compra esté en estado `draft`; una compra `completed` es inmutable. Los privilegios de columna impiden cambiar `user_id`, snapshots o `status` directamente desde el cliente.
 
 `finalize_shopping_trip` es una función transaccional `security definer` que valida `auth.uid()`, bloquea la compra, exige al menos una línea y cambia el estado a `completed`. `ensure_initial_stores` crea de forma idempotente D1, Ara, Éxito, Olímpica, Carulla e Ísimo para cada usuario. Se eligieron tiendas iniciales por usuario porque mantiene ownership y RLS simples; duplicar seis nombres pequeños evita un modelo híbrido global/personal.
 
@@ -58,7 +58,7 @@ RLS está habilitado en las cuatro tablas. Existen políticas explícitas SELECT
 
 ## Current workflows
 
-La UI incluye login, dashboard basado en datos reales, catálogo y creación rápida de productos, tiendas iniciales y personalizadas, compra reanudable, búsqueda/autocompletado, precio, stepper de cantidad, subtotal y total inmediatos, eliminación de líneas, finalización, historial de compras, detalle histórico, estadísticas por producto, gráfica de evolución y último precio por tienda.
+La UI incluye login y registro, dashboard basado en datos reales, catálogo y creación rápida de productos, tiendas iniciales y personalizadas, compra reanudable, búsqueda/autocompletado local y del catálogo colombiano, lectura de código de barras en vivo, desde una foto local o por ingreso manual, precio, stepper de cantidad, subtotal y total inmediatos, eliminación de líneas, finalización, historial de compras, detalle histórico, estadísticas por producto, gráfica de evolución y último precio por tienda. Si el código no tiene nombre o presentación utilizable, se solicita al usuario completar esos datos antes de añadirlo. La foto se procesa en el navegador y no se sube a Supabase.
 
 La compra actual se guarda en Supabase. Mientras se edita, React actualiza inmediatamente y agrupa escrituras rápidas durante una pausa corta. Un respaldo en `localStorage` protege cambios aún no sincronizados y se reconcilia al volver; se elimina al finalizar o cerrar sesión.
 
@@ -75,4 +75,4 @@ El frontend requiere exclusivamente `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KE
 
 ## Important known issues
 
-La migración debe aplicarse y debe crearse al menos un usuario en Supabase Auth antes del primer acceso. El repositorio no contiene credenciales ni un proyecto Supabase enlazado. Sin variables de entorno, la aplicación muestra una pantalla de configuración en lugar de intentar conectarse.
+Las migraciones deben aplicarse antes de usar las funciones correspondientes y el registro debe habilitarse en Supabase Auth si se desean cuentas nuevas. El seed versionado contiene 6.794 códigos etiquetados `en:colombia` del export de Open Food Facts; algunas filas carecen de nombre o cantidad en la fuente y requieren completarse al seleccionarse. El CSV original se guarda en `insumos/`, excluido de Git. El repositorio no contiene credenciales ni un proyecto Supabase enlazado. Sin variables de entorno, la aplicación muestra una pantalla de configuración en lugar de intentar conectarse.

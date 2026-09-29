@@ -1,14 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown, Minus, Plus, Search, ShoppingBasket, Sparkles, Store, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Check, ChevronDown, Minus, Plus, ScanLine, Search, ShoppingBasket, Sparkles, Store, Trash2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/auth-context'
 import { ErrorState, PageLoader } from '../components/AsyncState'
+import { BarcodeScanner } from '../components/BarcodeScanner'
 import { ProductForm } from '../components/ProductForm'
 import { clearDraftBackup, loadDraftBackup, saveDraftBackup } from '../lib/draft-backup'
+import { catalogService } from '../services/catalog.service'
 import { productsService } from '../services/products.service'
 import { shoppingTripsService } from '../services/shopping-trips.service'
 import { storesService } from '../services/stores.service'
-import type { Product, ShoppingItem, ShoppingTrip, Store as StoreType } from '../types/domain'
+import type { CatalogProduct, Product, ShoppingItem, ShoppingTrip, Store as StoreType } from '../types/domain'
+import { parsePresentation } from '../utils/barcode'
 import { formatCurrency, formatDate, formatPresentation, todayLocalIso } from '../utils/format'
 import { calculateSubtotal, calculateTotal } from '../utils/shopping'
 
@@ -44,13 +47,38 @@ export function ShoppingPage() {
   const [showNewStore, setShowNewStore] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<Product[]>([])
+  const [catalogResults, setCatalogResults] = useState<CatalogProduct[]>([])
   const [searching, setSearching] = useState(false)
+  const [resolvingCatalog, setResolvingCatalog] = useState(false)
+  const [checkingScanner, setCheckingScanner] = useState(false)
+  const [scannerOpen, setScannerOpen] = useState(false)
+  const [pendingBarcode, setPendingBarcode] = useState<string | null>(null)
+  const [pendingCatalog, setPendingCatalog] = useState<CatalogProduct | null>(null)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [newItemPrice, setNewItemPrice] = useState('')
   const [newItemQuantity, setNewItemQuantity] = useState(1)
   const [creatingProduct, setCreatingProduct] = useState(false)
   const timers = useRef(new Map<string, number>())
   const pendingUpdates = useRef(new Map<string, PendingUpdate>())
+  const scanButtonRef = useRef<HTMLButtonElement>(null)
+  const tripId = trip?.id
+  const closeScanner = useCallback(() => { setScannerOpen(false); scanButtonRef.current?.focus() }, [])
+
+  async function openScanner() {
+    setCheckingScanner(true)
+    setError('')
+    try {
+      if (!(await catalogService.getStatus()).ready) {
+        setError('El lector estará disponible cuando se apliquen las migraciones del catálogo en Supabase.')
+        return
+      }
+      setScannerOpen(true)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'No fue posible preparar el lector.')
+    } finally {
+      setCheckingScanner(false)
+    }
+  }
 
   async function loadCurrent() {
     setLoading(true)
@@ -93,16 +121,87 @@ export function ShoppingPage() {
   }, [trip])
 
   useEffect(() => {
-    if (!trip || !query.trim()) {
+    if (!tripId || !query.trim() || selectedProduct) return
+    let active = true
+    const timer = window.setTimeout(() => {
+      void Promise.allSettled([productsService.list(query), catalogService.search(query)])
+        .then(([ownedResult, catalogResult]) => {
+          if (!active) return
+          const owned = ownedResult.status === 'fulfilled' ? ownedResult.value : []
+          const catalog = catalogResult.status === 'fulfilled' ? catalogResult.value : []
+          setResults(owned)
+          setCatalogResults(catalog.filter((entry) => !owned.some((product) => product.barcode === entry.code)))
+          const failure = ownedResult.status === 'rejected' ? ownedResult.reason
+            : catalogResult.status === 'rejected' ? catalogResult.reason : null
+          if (failure) setError(failure instanceof Error ? failure.message : 'No fue posible buscar productos.')
+        })
+        .finally(() => { if (active) setSearching(false) })
+    }, 220)
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [query, tripId, selectedProduct])
+
+  function selectProduct(product: Product) {
+    if (trip?.items.some((item) => item.productId === product.id)) {
+      setError(`${product.name} ya está en el carrito. Ajusta la cantidad en su tarjeta.`)
+      setSelectedProduct(null)
+      setQuery('')
+      setResults([])
+      setCatalogResults([])
       return
     }
-    const timer = window.setTimeout(() => {
-      void productsService.list(query).then(setResults).catch((caught) => {
-        setError(caught instanceof Error ? caught.message : 'No fue posible buscar productos.')
-      }).finally(() => setSearching(false))
-    }, 220)
-    return () => window.clearTimeout(timer)
-  }, [query, trip])
+    setSelectedProduct(product)
+    setQuery(product.name)
+    setResults([])
+    setCatalogResults([])
+    setSearching(false)
+  }
+
+  async function chooseCatalog(catalog: CatalogProduct) {
+    if (!session) return
+    setResolvingCatalog(true)
+    setError('')
+    try {
+      const product = await productsService.ensureFromCatalog(session.user.id, catalog)
+      if (product) selectProduct(product)
+      else {
+        setPendingBarcode(catalog.code)
+        setPendingCatalog(catalog)
+        setCreatingProduct(true)
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'No fue posible seleccionar el producto del catálogo.')
+    } finally {
+      setResolvingCatalog(false)
+    }
+  }
+
+  async function handleBarcode(code: string) {
+    closeScanner()
+    setResolvingCatalog(true)
+    setError('')
+    try {
+      const owned = await productsService.getByBarcode(code)
+      if (owned) {
+        selectProduct(owned.active ? owned : await productsService.update(owned.id, { ...owned, active: true }))
+        return
+      }
+      const catalog = await catalogService.getByCode(code)
+      if (catalog && session) {
+        const product = await productsService.ensureFromCatalog(session.user.id, catalog)
+        if (product) {
+          selectProduct(product)
+          return
+        }
+      }
+      setPendingBarcode(code)
+      setPendingCatalog(catalog)
+      setCreatingProduct(true)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'No fue posible consultar el código de barras.')
+    } finally {
+      setResolvingCatalog(false)
+    }
+  }
 
   async function startTrip() {
     if (!session || !selectedStore) return setError('Selecciona una tienda para continuar.')
@@ -263,15 +362,21 @@ export function ShoppingPage() {
       {error && <div className="inline-error" role="alert">{error}<button type="button" onClick={() => setError('')}>Cerrar</button></div>}
 
       <section className="add-product-panel">
-        <label className="search-field large"><Search size={20} /><span className="sr-only">Buscar producto</span><input value={query} onChange={(event) => { const value = event.target.value; setQuery(value); setSelectedProduct(null); setResults([]); setSearching(Boolean(value.trim())) }} placeholder="Buscar producto…" autoComplete="off" /></label>
+        <div className="product-search-row">
+          <label className="search-field large"><Search size={20} /><span className="sr-only">Buscar producto</span><input value={query} onChange={(event) => { const value = event.target.value; setQuery(value); setSelectedProduct(null); setResults([]); setCatalogResults([]); setSearching(Boolean(value.trim())) }} placeholder="Buscar producto…" autoComplete="off" /></label>
+          <button ref={scanButtonRef} className="scanner-button" type="button" disabled={checkingScanner} onClick={() => void openScanner()} aria-label={checkingScanner ? 'Comprobando lector' : 'Escanear código de barras'}><ScanLine size={22} /><span>{checkingScanner ? 'Comprobando…' : 'Escanear'}</span></button>
+        </div>
+        {resolvingCatalog && <p className="search-hint" role="status">Consultando código de barras…</p>}
         {query && !selectedProduct && (
           <div className="search-results">
             {searching && <p className="search-hint">Buscando…</p>}
             {!searching && results.map((product) => {
               const alreadyAdded = trip.items.some((item) => item.productId === product.id)
-              return <button type="button" key={product.id} disabled={alreadyAdded} onClick={() => setSelectedProduct(product)}><span><strong>{product.name}</strong><small>{formatPresentation(product.presentationQuantity, product.presentationUnit)}</small></span><span>{alreadyAdded ? 'Agregado' : <Plus size={18} />}</span></button>
+              return <button type="button" key={product.id} disabled={alreadyAdded} onClick={() => selectProduct(product)}><span><strong>{product.name}</strong><small>{formatPresentation(product.presentationQuantity, product.presentationUnit)} · Mi catálogo</small></span><span>{alreadyAdded ? 'Agregado' : <Plus size={18} />}</span></button>
             })}
-            {!searching && <button type="button" className="create-result" onClick={() => setCreatingProduct(true)}><Sparkles size={18} /><span><strong>Crear “{query}”</strong><small>Guardar en tu catálogo</small></span></button>}
+            {!searching && catalogResults.map((catalog) => <button type="button" key={catalog.code} disabled={resolvingCatalog} onClick={() => void chooseCatalog(catalog)}><span><strong>{catalog.productName || `Código ${catalog.code}`}</strong><small>{catalog.quantity || 'Presentación por confirmar'} · Open Food Facts</small></span><Plus size={18} /></button>)}
+            {!searching && catalogResults.length > 0 && <p className="source-credit">Datos de <a href="https://world.openfoodfacts.org/" target="_blank" rel="noreferrer">Open Food Facts</a> (ODbL).</p>}
+            {!searching && <button type="button" className="create-result" onClick={() => { setPendingBarcode(null); setPendingCatalog(null); setCreatingProduct(true) }}><Sparkles size={18} /><span><strong>Crear “{query}”</strong><small>Guardar en tu catálogo</small></span></button>}
           </div>
         )}
         {selectedProduct && (
@@ -295,7 +400,8 @@ export function ShoppingPage() {
 
       <footer className="checkout-bar"><div><span>Total compra</span><strong>{formatCurrency(trip.total)}</strong></div><button className="primary-button" type="button" disabled={trip.items.length === 0 || loading} onClick={() => void finalizeTrip()}><Check size={19} /> {loading ? 'Finalizando…' : 'Finalizar compra'}</button></footer>
 
-      {creatingProduct && <div className="sheet-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setCreatingProduct(false)}><div className="bottom-sheet" role="dialog" aria-modal="true" aria-label="Crear producto"><ProductForm initialName={query} onCancel={() => setCreatingProduct(false)} onSaved={(product) => { setCreatingProduct(false); setSelectedProduct(product); setResults((current) => [product, ...current]) }} /></div></div>}
+      {scannerOpen && <BarcodeScanner onDetected={(code) => void handleBarcode(code)} onClose={closeScanner} />}
+      {creatingProduct && <div className="sheet-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setCreatingProduct(false)}><div className="bottom-sheet" role="dialog" aria-modal="true" aria-label="Crear producto"><ProductForm initialName={pendingCatalog?.productName || (pendingBarcode ? '' : query)} initialBarcode={pendingBarcode ?? undefined} initialQuantity={parsePresentation(pendingCatalog?.quantity ?? null)?.presentationQuantity} initialUnit={parsePresentation(pendingCatalog?.quantity ?? null)?.presentationUnit} onCancel={() => setCreatingProduct(false)} onSaved={(product) => { setCreatingProduct(false); setPendingBarcode(null); setPendingCatalog(null); selectProduct(product) }} /></div></div>}
     </div>
   )
 }

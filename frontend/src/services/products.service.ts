@@ -1,6 +1,7 @@
 import { getSupabase } from '../lib/supabase'
 import type { Database } from '../types/database'
-import type { Product, SaveProductInput } from '../types/domain'
+import type { CatalogProduct, Product, SaveProductInput } from '../types/domain'
+import { parsePresentation } from '../utils/barcode'
 import { ServiceError, throwIfError } from './service-error'
 
 type ProductRow = Database['public']['Tables']['products']['Row']
@@ -8,6 +9,7 @@ type ProductRow = Database['public']['Tables']['products']['Row']
 function mapProduct(row: ProductRow): Product {
   return {
     id: row.id,
+    barcode: row.barcode ?? null,
     name: row.name,
     presentationQuantity: Number(row.presentation_quantity),
     presentationUnit: row.presentation_unit as Product['presentationUnit'],
@@ -40,11 +42,48 @@ export const productsService = {
     return mapProduct(data!)
   },
 
+  async getByBarcode(code: string): Promise<Product | null> {
+    const { data, error } = await getSupabase().from('products').select('*').eq('barcode', code).maybeSingle()
+    throwIfError(error, 'No fue posible buscar el código de barras.')
+    return data ? mapProduct(data) : null
+  },
+
+  async ensureFromCatalog(userId: string, catalog: CatalogProduct): Promise<Product | null> {
+    const name = catalog.productName?.trim().slice(0, 120)
+    const presentation = parsePresentation(catalog.quantity)
+    if (!name || !presentation) return null
+
+    const byBarcode = await this.getByBarcode(catalog.code)
+    if (byBarcode) return byBarcode.active ? byBarcode : this.update(byBarcode.id, { ...byBarcode, active: true })
+
+    const { data, error } = await getSupabase()
+      .from('products')
+      .select('*')
+      .ilike('name', name.replace(/[\\%_]/g, '\\$&'))
+      .eq('presentation_quantity', presentation.presentationQuantity)
+      .eq('presentation_unit', presentation.presentationUnit)
+      .maybeSingle()
+    throwIfError(error, 'No fue posible revisar tus productos.')
+    if (data) {
+      const existing = mapProduct(data)
+      return this.update(data.id, { ...existing, barcode: existing.barcode ?? catalog.code, active: true })
+    }
+
+    return this.create(userId, {
+      name,
+      ...presentation,
+      barcode: catalog.code,
+      category: null,
+      active: true,
+    })
+  },
+
   async create(userId: string, input: SaveProductInput): Promise<Product> {
     const { data, error } = await getSupabase()
       .from('products')
       .insert({
         user_id: userId,
+        ...(input.barcode ? { barcode: input.barcode } : {}),
         name: input.name.trim(),
         presentation_quantity: input.presentationQuantity,
         presentation_unit: input.presentationUnit,
@@ -61,6 +100,7 @@ export const productsService = {
     const { data, error } = await getSupabase()
       .from('products')
       .update({
+        ...(input.barcode ? { barcode: input.barcode } : {}),
         name: input.name.trim(),
         presentation_quantity: input.presentationQuantity,
         presentation_unit: input.presentationUnit,

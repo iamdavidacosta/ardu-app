@@ -6,15 +6,18 @@ import type { PresentationUnit, Product } from '../types/domain'
 
 const units: PresentationUnit[] = ['g', 'kg', 'ml', 'L', 'unidades']
 
-export function ProductForm({ initialName = '', onSaved, onCancel }: {
+export function ProductForm({ initialName = '', initialBarcode, initialQuantity, initialUnit, onSaved, onCancel }: {
   initialName?: string
+  initialBarcode?: string
+  initialQuantity?: number
+  initialUnit?: PresentationUnit
   onSaved: (product: Product) => void
   onCancel: () => void
 }) {
   const { session } = useAuth()
-  const [name, setName] = useState(initialName)
-  const [quantity, setQuantity] = useState('1')
-  const [unit, setUnit] = useState<PresentationUnit>('kg')
+  const [name, setName] = useState(initialName.slice(0, 120))
+  const [quantity, setQuantity] = useState(initialQuantity?.toString() ?? (initialBarcode ? '' : '1'))
+  const [unit, setUnit] = useState<PresentationUnit>(initialUnit ?? (initialBarcode ? 'unidades' : 'kg'))
   const [category, setCategory] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -38,6 +41,7 @@ export function ProductForm({ initialName = '', onSaved, onCancel }: {
     setError('')
     try {
       const product = await productsService.create(session.user.id, {
+        barcode: initialBarcode,
         name,
         presentationQuantity,
         presentationUnit: unit,
@@ -55,6 +59,7 @@ export function ProductForm({ initialName = '', onSaved, onCancel }: {
   return (
     <form className="product-form" onSubmit={handleSubmit}>
       <div className="sheet-heading"><div><p className="eyebrow">Catálogo reutilizable</p><h2>Nuevo producto</h2></div><button className="icon-button" type="button" onClick={onCancel} aria-label="Cerrar"><X size={20} /></button></div>
+      {initialBarcode && <p className="barcode-hint">Código {initialBarcode}. Completa el nombre y la presentación para añadirlo a tu catálogo.</p>}
       <label>Nombre<input autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={120} placeholder="Ej. Arroz Diana" required /></label>
       <div className="field-grid">
         <label>Presentación<input type="number" inputMode="decimal" min="0.001" step="0.001" value={quantity} onChange={(event) => setQuantity(event.target.value)} required /></label>
