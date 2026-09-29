@@ -14,6 +14,15 @@ vi.mock('@zxing/browser', () => ({
 afterEach(() => { cleanup(); decodeFromImageUrl.mockReset(); decodeFromConstraints.mockReset() })
 
 describe('BarcodeScanner manual fallback', () => {
+  it('places the sheet above page animations and navigation', () => {
+    const previousOverflow = document.body.style.overflow
+    const { unmount } = render(<BarcodeScanner onDetected={vi.fn()} onClose={vi.fn()} />)
+    expect(screen.getByRole('dialog').parentElement?.parentElement).toBe(document.body)
+    expect(document.body.style.overflow).toBe('hidden')
+    unmount()
+    expect(document.body.style.overflow).toBe(previousOverflow)
+  })
+
   it('requests a high-resolution rear camera and offers hardware zoom when supported', async () => {
     const originalMediaDevices = Object.getOwnPropertyDescriptor(navigator, 'mediaDevices')
     const applyConstraints = vi.fn().mockResolvedValue(undefined)
@@ -36,6 +45,7 @@ describe('BarcodeScanner manual fallback', () => {
         audio: false,
       })
       const slider = await screen.findByRole('slider', { name: 'Acercar imagen' })
+      expect(applyConstraints).not.toHaveBeenCalled()
       fireEvent.change(slider, { target: { value: '2' } })
       await waitFor(() => expect(applyConstraints).toHaveBeenCalledWith({ advanced: [{ zoom: 2 }] }))
     } finally {
@@ -75,8 +85,8 @@ describe('BarcodeScanner manual fallback', () => {
     decodeFromImageUrl.mockResolvedValue({ getText: () => '7702047038772' })
 
     try {
-      const { container } = render(<BarcodeScanner onDetected={onDetected} onClose={vi.fn()} />)
-      const galleryInput = container.querySelectorAll<HTMLInputElement>('input[type="file"]')[1]
+      render(<BarcodeScanner onDetected={onDetected} onClose={vi.fn()} />)
+      const galleryInput = document.body.querySelectorAll<HTMLInputElement>('.scanner-photo-actions input[type="file"]')[1]
       fireEvent.change(galleryInput, { target: { files: [new File(['pixels'], 'barcode.png', { type: 'image/png' })] } })
 
       await waitFor(() => expect(onDetected).toHaveBeenCalledWith('7702047038772'))
@@ -92,8 +102,8 @@ describe('BarcodeScanner manual fallback', () => {
 
   it('rejects a non-image file before decoding', () => {
     const onDetected = vi.fn()
-    const { container } = render(<BarcodeScanner onDetected={onDetected} onClose={vi.fn()} />)
-    const galleryInput = container.querySelectorAll<HTMLInputElement>('input[type="file"]')[1]
+    render(<BarcodeScanner onDetected={onDetected} onClose={vi.fn()} />)
+    const galleryInput = document.body.querySelectorAll<HTMLInputElement>('.scanner-photo-actions input[type="file"]')[1]
     fireEvent.change(galleryInput, { target: { files: [new File(['text'], 'receipt.pdf', { type: 'application/pdf' })] } })
 
     expect(screen.getByRole('alert')).toHaveTextContent('foto JPG')

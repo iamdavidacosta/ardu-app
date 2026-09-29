@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEv
 import { Camera, ImagePlus, ScanLine, X } from 'lucide-react'
 import type { IScannerControls } from '@zxing/browser'
 import { isBarcode } from '../utils/barcode'
+import { SheetPortal } from './SheetPortal'
 
 const maxPhotoBytes = 10 * 1024 * 1024
 const acceptedPhotoTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp', 'image/heic', 'image/heif'])
@@ -62,10 +63,7 @@ export function BarcodeScanner({ onDetected, onClose }: {
         if (active && !handledRef.current) {
           controlsRef.current = scannerControls
           const track = getCameraTrack(videoRef.current)
-          const capabilities = track?.getCapabilities?.() as (MediaTrackCapabilities & { zoom?: ZoomRange; focusMode?: string[] }) | undefined
-          if (track && capabilities?.focusMode?.includes('continuous')) {
-            void track.applyConstraints({ advanced: [{ focusMode: 'continuous' } as MediaTrackConstraintSet] }).catch(() => {})
-          }
+          const capabilities = track?.getCapabilities?.() as (MediaTrackCapabilities & { zoom?: ZoomRange }) | undefined
           if (capabilities?.zoom && capabilities.zoom.max > capabilities.zoom.min) {
             setZoomRange(capabilities.zoom)
             const currentZoom = (track?.getSettings() as MediaTrackSettings & { zoom?: number } | undefined)?.zoom
@@ -132,7 +130,7 @@ export function BarcodeScanner({ onDetected, onClose }: {
   }
 
   return (
-    <div className="sheet-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <SheetPortal><div className="sheet-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="bottom-sheet scanner-sheet" role="dialog" aria-modal="true" aria-labelledby="scanner-title">
         <header className="sheet-heading"><div><p className="eyebrow">Compra actual</p><h2 id="scanner-title">Escanear producto</h2></div><button autoFocus className="icon-button" type="button" onClick={onClose} aria-label="Cerrar lector"><X size={20} /></button></header>
         <div className="scanner-photo-actions">
@@ -152,6 +150,6 @@ export function BarcodeScanner({ onDetected, onClose }: {
           {manualError && <p className="form-error" role="alert">{manualError}</p>}
         </form>
       </section>
-    </div>
+    </div></SheetPortal>
   )
 }

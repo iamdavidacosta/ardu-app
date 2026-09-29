@@ -5,6 +5,7 @@ import { useAuth } from '../auth/auth-context'
 import { ErrorState, PageLoader } from '../components/AsyncState'
 import { BarcodeScanner } from '../components/BarcodeScanner'
 import { ProductForm } from '../components/ProductForm'
+import { SheetPortal } from '../components/SheetPortal'
 import { clearDraftBackup, loadDraftBackup, saveDraftBackup } from '../lib/draft-backup'
 import { catalogService } from '../services/catalog.service'
 import { productsService } from '../services/products.service'
@@ -54,6 +55,7 @@ export function ShoppingPage() {
   const [scannerOpen, setScannerOpen] = useState(false)
   const [pendingBarcode, setPendingBarcode] = useState<string | null>(null)
   const [pendingCatalog, setPendingCatalog] = useState<CatalogProduct | null>(null)
+  const [pendingLookupMessage, setPendingLookupMessage] = useState('')
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [newItemPrice, setNewItemPrice] = useState('')
   const [newItemQuantity, setNewItemQuantity] = useState(1)
@@ -179,6 +181,7 @@ export function ShoppingPage() {
     closeScanner()
     setResolvingCatalog(true)
     setError('')
+    setPendingLookupMessage('')
     try {
       const owned = await productsService.getByBarcode(code)
       if (owned) {
@@ -186,26 +189,38 @@ export function ShoppingPage() {
         return
       }
       let catalog = await catalogService.getByCode(code)
+      let sharedSaveError = ''
       if (!catalog) {
+        let found: Awaited<ReturnType<typeof catalogService.getFromOpenFoodFacts>>
         try {
-          catalog = await catalogService.getFromOpenFoodFacts(code)
+          found = await catalogService.getFromOpenFoodFacts(code)
         } catch (caught) {
-          setError(caught instanceof Error ? caught.message : 'No fue posible consultar Open Food Facts; puedes ingresar el producto manualmente.')
+          setPendingLookupMessage(caught instanceof Error ? caught.message : 'No fue posible consultar Open Food Facts; puedes ingresar el producto manualmente.')
           setPendingBarcode(code)
           setPendingCatalog(null)
           setCreatingProduct(true)
           return
+        }
+        catalog = found
+        if (found) {
+          try {
+            catalog = await catalogService.add(code, found.productName, found.quantity)
+          } catch {
+            sharedSaveError = 'Encontramos el producto en Open Food Facts, pero no se guardó en el catálogo compartido. Puedes usarlo en esta compra; falta revisar los permisos de Supabase.'
+          }
         }
       }
       if (catalog && session) {
         const product = await productsService.ensureFromCatalog(session.user.id, catalog)
         if (product) {
           selectProduct(product)
+          if (sharedSaveError) setError(sharedSaveError)
           return
         }
       }
       setPendingBarcode(code)
       setPendingCatalog(catalog)
+      setPendingLookupMessage(sharedSaveError || (catalog ? 'Confirma la presentación para continuar.' : 'No encontramos este código en Open Food Facts. Ingresa sus datos manualmente.'))
       setCreatingProduct(true)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'No fue posible consultar el código de barras.')
@@ -216,16 +231,15 @@ export function ShoppingPage() {
 
   function finishManualProduct(product: Product) {
     const code = pendingBarcode
-    const original = pendingCatalog
     setCreatingProduct(false)
     setPendingBarcode(null)
     setPendingCatalog(null)
     selectProduct(product)
     if (!code) return
     const quantity = formatPresentation(product.presentationQuantity, product.presentationUnit)
-    const saveShared = original
+    const saveShared = catalogService.getByCode(code).then((existing) => existing
       ? catalogService.update(code, product.name, quantity)
-      : catalogService.add(code, product.name, quantity)
+      : catalogService.add(code, product.name, quantity))
     void saveShared.catch((caught) => setError(caught instanceof Error ? caught.message : 'El producto se guardó solo en tu catálogo personal.'))
   }
 
@@ -427,7 +441,7 @@ export function ShoppingPage() {
       <footer className="checkout-bar"><div><span>Total compra</span><strong>{formatCurrency(trip.total)}</strong></div><button className="primary-button" type="button" disabled={trip.items.length === 0 || loading} onClick={() => void finalizeTrip()}><Check size={19} /> {loading ? 'Finalizando…' : 'Finalizar compra'}</button></footer>
 
       {scannerOpen && <BarcodeScanner onDetected={(code) => void handleBarcode(code)} onClose={closeScanner} />}
-      {creatingProduct && <div className="sheet-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setCreatingProduct(false)}><div className="bottom-sheet" role="dialog" aria-modal="true" aria-label="Crear producto"><ProductForm initialName={pendingCatalog?.productName || (pendingBarcode ? '' : query)} initialBarcode={pendingBarcode ?? undefined} initialQuantity={parsePresentation(pendingCatalog?.quantity ?? null)?.presentationQuantity} initialUnit={parsePresentation(pendingCatalog?.quantity ?? null)?.presentationUnit} onCancel={() => setCreatingProduct(false)} onSaved={finishManualProduct} /></div></div>}
+      {creatingProduct && <SheetPortal><div className="sheet-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setCreatingProduct(false)}><div className="bottom-sheet" role="dialog" aria-modal="true" aria-label="Crear producto"><ProductForm initialName={pendingCatalog?.productName || (pendingBarcode ? '' : query)} initialBarcode={pendingBarcode ?? undefined} initialQuantity={parsePresentation(pendingCatalog?.quantity ?? null)?.presentationQuantity} initialUnit={parsePresentation(pendingCatalog?.quantity ?? null)?.presentationUnit} lookupMessage={pendingLookupMessage} onCancel={() => setCreatingProduct(false)} onSaved={finishManualProduct} /></div></div></SheetPortal>}
     </div>
   )
 }

@@ -13,13 +13,23 @@ const mapCatalogProduct = (row: CatalogRow): CatalogProduct => ({
 })
 
 export const catalogService = {
-  async getFromOpenFoodFacts(code: string): Promise<CatalogProduct | null> {
+  async getFromOpenFoodFacts(code: string): Promise<(CatalogProduct & { productName: string }) | null> {
     if (!/^\d{4,32}$/.test(code)) throw new ServiceError('Código de barras inválido.')
-    const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}?fields=code,product_name,quantity`, {
-      signal: AbortSignal.timeout(10_000),
-    })
-    if (!response.ok) throw new ServiceError('Open Food Facts no está disponible. Intenta de nuevo o completa el producto manualmente.')
-    const payload: unknown = await response.json()
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10_000)
+    let payload: unknown
+    try {
+      const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}?fields=code,product_name,quantity`, {
+        signal: controller.signal,
+      })
+      if (!response.ok) throw new ServiceError('Open Food Facts no está disponible. Intenta de nuevo o completa el producto manualmente.')
+      payload = await response.json()
+    } catch (caught) {
+      if (caught instanceof ServiceError) throw caught
+      throw new ServiceError('No pudimos conectar con Open Food Facts. Puedes ingresar el producto manualmente.')
+    } finally {
+      clearTimeout(timeout)
+    }
     if (!payload || typeof payload !== 'object' || !('status' in payload) || payload.status !== 1 || !('product' in payload)) return null
     const product = payload.product
     if (!product || typeof product !== 'object' || !('code' in product) || product.code !== code) return null
@@ -29,7 +39,11 @@ export const catalogService = {
       quantity: 'quantity' in product && typeof product.quantity === 'string' ? product.quantity : null,
     }
     if (!found.productName?.trim()) return null
-    return this.add(code, found.productName.slice(0, 120), found.quantity?.slice(0, 120) ?? null)
+    return {
+      code,
+      productName: found.productName.trim().slice(0, 120),
+      quantity: found.quantity?.trim().slice(0, 120) || null,
+    }
   },
 
   async add(code: string, productName: string, quantity: string | null): Promise<CatalogProduct> {

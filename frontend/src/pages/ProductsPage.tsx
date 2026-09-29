@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/auth-context'
 import { ErrorState, PageLoader } from '../components/AsyncState'
 import { ProductForm } from '../components/ProductForm'
+import { SheetPortal } from '../components/SheetPortal'
 import { CatalogEditor } from '../components/CatalogEditor'
 import { useAsyncValue } from '../hooks/useAsyncValue'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
@@ -88,11 +89,11 @@ export function ProductsPage() {
       {editingCatalog && <CatalogEditor product={editingCatalog} onClose={() => setEditingCatalog(null)} onSaved={() => { setEditingCatalog(null); void catalog.reload() }} />}
 
       {creating && (
-        <div className="sheet-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setCreating(false); setSelectedCatalog(null) } }}>
+        <SheetPortal><div className="sheet-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setCreating(false); setSelectedCatalog(null) } }}>
           <div className="bottom-sheet" role="dialog" aria-modal="true" aria-label="Crear producto">
             <ProductForm initialName={selectedCatalog?.productName || query} initialBarcode={selectedCatalog?.code} initialQuantity={parsePresentation(selectedCatalog?.quantity ?? null)?.presentationQuantity} initialUnit={parsePresentation(selectedCatalog?.quantity ?? null)?.presentationUnit} onCancel={() => { setCreating(false); setSelectedCatalog(null) }} onSaved={(product) => { setCreating(false); setSelectedCatalog(null); setQuery(''); if (selectedCatalog) navigate(`/products/${product.id}`); else void products.reload() }} />
           </div>
-        </div>
+        </div></SheetPortal>
       )}
     </div>
   )
