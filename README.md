@@ -5,8 +5,8 @@ Aplicación personal, mobile-first, para registrar compras de supermercado y con
 ## Configuración
 
 1. Crea un proyecto en Supabase.
-2. Aplica [`supabase/migrations/202609280001_initial_schema.sql`](supabase/migrations/202609280001_initial_schema.sql) con Supabase CLI (`supabase db push`) o desde el SQL Editor.
-3. Crea el usuario que utilizará la aplicación en Supabase Auth; la interfaz no expone registro público.
+2. Aplica las migraciones de `supabase/migrations` en orden con Supabase CLI (`supabase db push`) o desde el SQL Editor. La primera crea el esquema, la segunda añade el catálogo colombiano y los códigos de barras, y la tercera carga los datos cuando se haya generado.
+3. Configura Supabase Auth para permitir registro con correo y contraseña si deseas crear cuentas desde la interfaz.
 4. Copia `frontend/.env.example` a `frontend/.env` y configura:
 
 ```dotenv
@@ -15,6 +15,22 @@ VITE_SUPABASE_ANON_KEY=tu-anon-key
 ```
 
 La aplicación no utiliza ni necesita una service role key en el navegador.
+
+## Catálogo de Open Food Facts
+
+El catálogo compartido conserva únicamente `code`, `product_name` y `quantity`. Para generar la migración de datos completa desde la búsqueda paginada de Colombia:
+
+```bash
+node scripts/import-openfoodfacts-colombia.mjs net
+```
+
+El API puede restringir las solicitudes automatizadas. Si sucede, descarga el CSV de Open Food Facts y genera el seed localmente. El importador filtra `countries_tags=en:colombia`, toma `code` y `quantity`, y elige el primer nombre disponible entre español, idioma del producto e inglés:
+
+```bash
+node scripts/import-openfoodfacts-colombia.mjs --csv insumos/openfoodfacts_export.csv 6794
+```
+
+El número final es el recuento esperado del archivo recibido; el script rechaza un archivo incompleto o códigos duplicados. `insumos/` está excluido de Git; solo se versiona el SQL con las tres columnas necesarias. Aplica `202609290002_seed_colombia_catalog.sql` después de `202609290001_catalog_and_barcodes.sql`. No uses la anon key del frontend para importar: el catálogo es de solo lectura para los usuarios autenticados. Los datos proceden de [Open Food Facts](https://world.openfoodfacts.org/) y se atribuyen bajo ODbL.
 
 ## Desarrollo
 
