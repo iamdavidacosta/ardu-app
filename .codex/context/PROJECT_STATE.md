@@ -65,6 +65,7 @@ La compra actual se guarda en Supabase. Mientras se edita, React actualiza inmed
 ## Configuration and commands
 
 El frontend requiere exclusivamente `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` en `frontend/.env`; `frontend/.env.example` documenta ambas sin valores reales.
+Vercel despliega desde `frontend`; `frontend/vercel.json` reescribe las rutas de la SPA a `/index.html` para que las páginas internas carguen al recargar o abrir un enlace directo.
 
 - Instalar: `cd frontend && npm install`
 - Desarrollo: `npm run dev`
